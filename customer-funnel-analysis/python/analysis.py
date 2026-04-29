@@ -1,14 +1,8 @@
 import pandas as pd
 
-# ============================================
-# BUSINESS PROBLEM
-# ============================================
-# Analyze user funnel behavior and segment users
-# into Active (cart users) and Passive (visit only)
-
-# ============================================
-# DATA
-# ============================================
+# ----------------------------------------
+# Load and prepare event data
+# ----------------------------------------
 data = [
     (1, 'visit'), (1, 'add_to_cart'), (1, 'purchase'),
     (2, 'visit'), (2, 'add_to_cart'),
@@ -22,9 +16,9 @@ data = [
 
 df = pd.DataFrame(data, columns=['user_id', 'event'])
 
-# ============================================
-# FUNNEL CREATION (USER LEVEL)
-# ============================================
+# ----------------------------------------
+# Build user-level funnel
+# ----------------------------------------
 user_order = ['visit', 'add_to_cart', 'purchase']
 
 df_flag = (
@@ -32,29 +26,58 @@ df_flag = (
     .reindex(columns=user_order, fill_value=0)
 )
 
-# Convert to boolean (did event happen)
 df_flag = df_flag > 0
 
-# ============================================
-# SEGMENTATION
-# ============================================
+# ----------------------------------------
+# Segment users based on behavior
+# ----------------------------------------
 df_flag['segment'] = df_flag.apply(
     lambda x: 'Active' if x['add_to_cart'] else 'Passive' if x['visit'] else 'Other',
     axis=1
 )
 
-# ============================================
-# METRICS CALCULATION
-# ============================================
-summary = df_flag.groupby('segment').agg(
-    users=('visit', 'count'),
-    visit_users=('visit', 'sum'),
-    cart_users=('add_to_cart', 'sum'),
-    purchase_users=('purchase', 'sum')
+# ----------------------------------------
+# Revenue calculation (aligned with SQL)
+# ----------------------------------------
+orders = pd.DataFrame([
+    (1,101,500),(2,102,300),(3,101,700),
+    (4,103,200),(5,104,1000),(6,102,400),
+    (7,105,-50),(8,101,600),(9,106,800),(10,101,500)
+], columns=['order_id','customer_id','amount'])
+
+payments = pd.DataFrame([
+    (1,'Success'),(2,'Failed'),(3,'Success'),
+    (4,'Success'),(5,'Failed'),(6,'Success'),
+    (7,'Success'),(8,'Failed'),(9,'Success'),(10,'Success')
+], columns=['order_id','status'])
+
+mapping = pd.DataFrame([
+    (1,101),(2,102),(3,103),(4,104),
+    (5,105),(6,106),(7,107),(8,108)
+], columns=['user_id','customer_id'])
+
+orders_clean = orders[orders['amount'] > 0]
+payments_clean = payments[payments['status'] == 'Success']
+
+revenue = (
+    orders_clean.merge(payments_clean, on='order_id')
+    .groupby('customer_id')['amount']
+    .sum()
+    .reset_index()
 )
 
-# Conversion Rates
-summary['visit_to_cart_rate'] = summary['cart_users'] / summary['visit_users']
-summary['cart_to_purchase_rate'] = summary['purchase_users'] / summary['cart_users']
+# ----------------------------------------
+# Combine funnel + revenue
+# ----------------------------------------
+final = df_flag.reset_index().merge(mapping, on='user_id', how='left')
+final = final.merge(revenue, on='customer_id', how='left').fillna(0)
 
-print(summary)
+# ----------------------------------------
+# Final summary
+# ----------------------------------------
+result = final.groupby('segment').agg(
+    users=('user_id','count'),
+    total_revenue=('amount','sum')
+)
+
+print(result)
